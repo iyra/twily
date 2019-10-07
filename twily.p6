@@ -1,3 +1,4 @@
+use Data::Dump;
 # + int int -> int
 # lambda (list-of-N sym) (a -> ?) -> fn-of-N
 # let ((sym a) (sym b) (sym c) ...) d) -> d
@@ -156,6 +157,20 @@ sub parse2(Str $s, Int $pos, Int $depth, @things) {
     return @h, $c;
 }
 
+sub count(Li $list) {
+    my $t = $list;
+    my $i = 0;
+    while $t.has_cdr {
+	$t = $t.cdr;
+	$i++;
+    }
+    return $i+1;
+}
+
+# (lambda '(x y z) (+ x (* y z)))
+my %builtins =
+    "+" => ["int", "int", "int"], "lambda" => ["type", ["sym"], "code"];
+
 sub type-check-thing(Thing $th) {
     if $th.type.WHAT === (Any) {
 	given $th.val.WHAT {
@@ -166,23 +181,38 @@ sub type-check-thing(Thing $th) {
 		given type-check-thing($th.val.car) {
 		    # expecting either a lambda or function name
 		    when $_.type eq "builtin" {
+			my @spec = [];
 			given $_.val.val {
 			    when "+" {
-				my $firstarg = $th.val.cdr;
-				say "H", $firstarg;
-				while $firstarg.has_cdr {
-				    if type-check-thing($firstarg.car).type eq "int" {
-					$firstarg =  $firstarg.cdr;
-				    } else {
-					die "ERROR (type-check) failed on ", $firstarg.car.val.val;
-				    }
-				}
-				$th.type = "int";
+				# int -> int -> int (["int" "int" "int"])
+				@spec = ["int", "int", "int"];
+				
 			    }
 
 			    when "lambda" {
-				
+				@spec = ["lambda" 
 			    }
+
+			    default {
+				die "ERROR (type-check) unknown function: ", $_;
+			    }
+			}
+
+			if @spec.elems-1 == count($th.val.cdr) {
+			    my $firstarg = $th.val.cdr;
+			    my $i = 0;
+			    while $firstarg.has_cdr and $i < @spec.elems-1 {
+				if type-check-thing($firstarg.car).type eq @spec[$i] {
+				    $firstarg = $firstarg.cdr;
+				    $i++;
+				} else {
+				    die "ERROR (type-check) failed on ", $firstarg.car.val.val;
+				}
+			    }
+			    
+			    $th.type = @spec[@spec.elems-1];
+			} else {
+			    die "ERROR (type-check) incorrect number of arguments for ", $th.val.cdr, ", expected ", @spec.elems-1, " and got ", count($th.val.cdr);
 			}
 		    }
 		}
@@ -190,14 +220,14 @@ sub type-check-thing(Thing $th) {
 
 	    when (Atom) {
 		given $th.val.val {
+		    when "+"|"lambda" {
+			$th.type = "builtin";
+		    }
 		    when $_ ~~ /^\d+$/ {
 			$th.type = "int";
 		    }
 		    when $_ ~~ /^\w+/ {
 			$th.type = "sym";
-		    }
-		    when "+" {
-			$th.type = "builtin";
 		    }
 		    when $_ ~~ /^\d+\.\d?/ {
 			$th.type = "deci";
@@ -226,7 +256,7 @@ sub top-eval(Thing @ths) {
 
 }
 
-my @q = parse2("(+ (+ 2 2) 1 (+ 1 2))", 0, 0, []);
+my @q = parse2("(+ 2 1)", 0, 0, []);
 say @q;
 say @q[0][1];
 say type-check-thing(@q[0][0]);
